@@ -123,20 +123,25 @@ export default function App() {
 
   // --- 初始化语音识别 ---
   useEffect(() => {
-    if (typeof window !== 'undefined' && ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+    if (typeof window !== 'undefined') {
       const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       
+      if (!SpeechRecognition) {
+        console.warn('Speech recognition not supported in this browser.');
+        return;
+      }
+
       // 如果已经存在，先停止
       if (recognitionRef.current) {
         try { recognitionRef.current.stop(); } catch(e) {}
       }
 
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = true;
-      recognitionRef.current.interimResults = true;
-      recognitionRef.current.lang = langMode;
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = langMode;
 
-      recognitionRef.current.onresult = (event: any) => {
+      recognition.onresult = (event: any) => {
         let final = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           if (event.results[i].isFinal) {
@@ -150,20 +155,49 @@ export default function App() {
         else if (currentStep === 'FOLLOWUP') setFollowUpAnswer(prev => prev + final);
       };
 
-      recognitionRef.current.onend = () => {
+      recognition.onend = () => {
+        console.log('Speech recognition ended.');
         // 如果是在录音状态下意外停止，重新开启（处理某些浏览器的自动停止）
         if ((window as any)._isRecording) {
-          try { recognitionRef.current.start(); } catch(e) {}
+          console.log('Attempting to restart recognition...');
+          // 延迟 300ms 重新启动，防止在某些移动端浏览器上出现无限循环导致的闪退
+          setTimeout(() => {
+            if ((window as any)._isRecording) {
+              try { 
+                recognition.start(); 
+              } catch(e) {
+                console.error('Failed to restart recognition:', e);
+              }
+            }
+          }, 300);
         }
       };
 
-      recognitionRef.current.onerror = (event: any) => {
-        console.error('Speech recognition error', event.error);
-        if (event.error !== 'no-speech') {
+      recognition.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error);
+        
+        // 处理权限错误
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          alert('麦克风访问被拒绝。请确保已在浏览器和系统设置中允许麦克风权限，并使用 HTTPS 访问。');
           setIsRecording(false);
           (window as any)._isRecording = false;
+        } 
+        // 处理网络错误
+        else if (event.error === 'network') {
+          alert('网络连接错误，语音识别可能无法正常工作。');
+        }
+        // 处理无语音错误 - 这种错误不需要停止录音，onend 会尝试重启
+        else if (event.error === 'no-speech') {
+          console.log('No speech detected.');
+        }
+        // 其他严重错误
+        else {
+          console.warn('Recognition error:', event.error);
+          // 对于其他错误，我们不一定需要停止，让 onend 尝试重启
         }
       };
+
+      recognitionRef.current = recognition;
     }
   }, [langMode]);
 
@@ -173,7 +207,6 @@ export default function App() {
 
   // --- 业务逻辑处理 ---
 
-  // 开始录音 (通用)
   // --- 辅助函数 ---
   const handleAIError = (error: unknown, defaultMsg: string) => {
     console.error(error);
@@ -187,19 +220,46 @@ export default function App() {
     }
   };
 
-  const startVoiceInput = (type: 'PRACTICE' | 'CUSTOMIZE' | 'FOLLOWUP') => {
+  // 开始录音 (通用)
+  const startVoiceInput = async (type: 'PRACTICE' | 'CUSTOMIZE' | 'FOLLOWUP') => {
+    // 检查浏览器支持
+    if (!recognitionRef.current) {
+      alert('您的浏览器不支持语音识别功能，请尝试使用 Chrome 或 Safari 浏览器。');
+      return;
+    }
+
+    // 在移动端，显式请求麦克风权限通常更稳定
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      try {
+        await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (err) {
+        console.error('Microphone permission denied:', err);
+        alert('无法获取麦克风权限，请在设置中开启。');
+        return;
+      }
+    }
+
     if (type === 'PRACTICE') setTranscript('');
     else if (type === 'CUSTOMIZE') setCustomInput('');
     else if (type === 'FOLLOWUP') setFollowUpAnswer('');
     
     setIsRecording(true);
-    recognitionRef.current?.start();
+    try {
+      recognitionRef.current.start();
+    } catch (e) {
+      console.error('Recognition start error:', e);
+      // 如果已经启动了，忽略错误
+    }
   };
 
   // 停止录音 (通用)
   const stopVoiceInput = () => {
     setIsRecording(false);
-    recognitionRef.current?.stop();
+    try {
+      recognitionRef.current?.stop();
+    } catch (e) {
+      console.error('Recognition stop error:', e);
+    }
   };
 
   // 开始分析 (用于 PRACTICE)
