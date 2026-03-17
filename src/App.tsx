@@ -118,6 +118,7 @@ export default function App() {
 
   // 语音识别引用
   const recognitionRef = useRef<any>(null);
+  const isStoppingRef = useRef(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
@@ -155,16 +156,24 @@ export default function App() {
 
       recognition.onend = () => {
         console.log('Speech recognition ended.');
+        
         // 如果是在录音状态下意外停止，重新开启（处理某些浏览器的自动停止）
-        if ((window as any)._isRecording) {
+        if ((window as any)._isRecording && !isStoppingRef.current) {
           console.log('Attempting to restart recognition...');
           // 延迟 300ms 重新启动，防止在某些移动端浏览器上出现无限循环导致的闪退
           setTimeout(() => {
-            if ((window as any)._isRecording) {
+            if ((window as any)._isRecording && !isStoppingRef.current) {
               try { 
                 recognition.start(); 
               } catch(e) {
                 console.error('Failed to restart recognition:', e);
+                // 如果启动失败，尝试重新初始化
+                if (e instanceof Error && e.message.includes('already started')) {
+                  // 忽略
+                } else {
+                  setIsRecording(false);
+                  (window as any)._isRecording = false;
+                }
               }
             }
           }, 300);
@@ -229,8 +238,10 @@ export default function App() {
   // 开始录音 (通用)
   const startVoiceInput = async (type: 'PRACTICE' | 'CUSTOMIZE' | 'FOLLOWUP') => {
     console.log('startVoiceInput called, type:', type, 'recognition exists?', !!recognitionRef.current);
+    
     // 检查浏览器支持
-    if (!recognitionRef.current) {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
       alert('您的浏览器不支持语音识别功能，请尝试使用 Chrome 或 Safari 浏览器。');
       return;
     }
@@ -238,7 +249,9 @@ export default function App() {
     // 在移动端，显式请求麦克风权限通常更稳定
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
       try {
-        await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // 立即停止流，我们只是为了触发权限弹窗
+        stream.getTracks().forEach(track => track.stop());
       } catch (err) {
         console.error('Microphone permission denied:', err);
         alert('无法获取麦克风权限，请在设置中开启。');
@@ -246,22 +259,67 @@ export default function App() {
       }
     }
 
+    // 重新初始化识别对象（解决某些移动端浏览器实例失效的问题）
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch(e) {}
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = langMode;
+
+    recognition.onresult = (event: any) => {
+      let fullTranscript = '';
+      for (let i = 0; i < event.results.length; ++i) {
+        fullTranscript += event.results[i][0].transcript;
+      }
+      
+      const currentStep = (window as any)._currentStep;
+      if (currentStep === 'PRACTICE') setTranscript(fullTranscript);
+      else if (currentStep === 'CUSTOMIZE') setCustomInput(fullTranscript);
+      else if (currentStep === 'FOLLOWUP') setFollowUpAnswer(fullTranscript);
+    };
+
+    recognition.onend = () => {
+      if ((window as any)._isRecording && !isStoppingRef.current) {
+        setTimeout(() => {
+          if ((window as any)._isRecording && !isStoppingRef.current) {
+            try { recognition.start(); } catch(e) {}
+          }
+        }, 300);
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error('Recognition error:', event.error);
+      if (event.error === 'not-allowed') {
+        alert('麦克风权限被拒绝');
+        setIsRecording(false);
+        (window as any)._isRecording = false;
+      }
+    };
+
+    recognitionRef.current = recognition;
+    isStoppingRef.current = false;
+
     if (type === 'PRACTICE') setTranscript('');
     else if (type === 'CUSTOMIZE') setCustomInput('');
     else if (type === 'FOLLOWUP') setFollowUpAnswer('');
     
     setIsRecording(true);
     try {
-      recognitionRef.current.start();
+      recognition.start();
     } catch (e) {
       console.error('Recognition start error:', e);
-      // 如果已经启动了，忽略错误
     }
   };
 
   // 停止录音 (通用)
   const stopVoiceInput = () => {
+    isStoppingRef.current = true;
     setIsRecording(false);
+    (window as any)._isRecording = false;
     try {
       recognitionRef.current?.stop();
     } catch (e) {
@@ -426,31 +484,44 @@ export default function App() {
 
   // 针对单句的重新录音逻辑
   const startRePracticeRecording = async (index: number) => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const mediaRecorder = new MediaRecorder(stream);
-    mediaRecorderRef.current = mediaRecorder;
-    audioChunksRef.current = [];
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('您的浏览器不支持语音识别功能');
+      return;
+    }
 
-    const recognition = new ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)();
-    recognition.lang = 'en-US';
-    recognition.onresult = (event: any) => {
-      const result = event.results[0][0].transcript;
-      setAnalysis(prev => prev.map((item, i) => i === index ? { ...item, rePracticeTranscript: result } : item));
-    };
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
 
-    mediaRecorder.ondataavailable = (event) => {
-      audioChunksRef.current.push(event.data);
-    };
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'en-US';
+      recognition.continuous = false; // 模仿单句不需要连续
+      recognition.onresult = (event: any) => {
+        const result = event.results[0][0].transcript;
+        setAnalysis(prev => prev.map((item, i) => i === index ? { ...item, rePracticeTranscript: result } : item));
+      };
 
-    mediaRecorder.onstop = () => {
-      const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
-      const audioUrl = URL.createObjectURL(audioBlob);
-      setAnalysis(prev => prev.map((item, i) => i === index ? { ...item, userAudioUrl: audioUrl, isRecording: false } : item));
-    };
+      mediaRecorder.ondataavailable = (event) => {
+        audioChunksRef.current.push(event.data);
+      };
 
-    setAnalysis(prev => prev.map((item, i) => i === index ? { ...item, isRecording: true, rePracticeTranscript: '' } : item));
-    mediaRecorder.start();
-    recognition.start();
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: mediaRecorder.mimeType });
+        const audioUrl = URL.createObjectURL(audioBlob);
+        setAnalysis(prev => prev.map((item, i) => i === index ? { ...item, userAudioUrl: audioUrl, isRecording: false } : item));
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      setAnalysis(prev => prev.map((item, i) => i === index ? { ...item, isRecording: true, rePracticeTranscript: '' } : item));
+      mediaRecorder.start();
+      recognition.start();
+    } catch (err) {
+      console.error('Re-practice recording error:', err);
+      alert('录音启动失败，请检查麦克风权限');
+    }
   };
 
   const stopRePracticeRecording = (index: number) => {
@@ -475,31 +546,44 @@ export default function App() {
   // 针对全篇的重新录音逻辑
   const startOverallRePracticeRecording = async () => {
     if (!overallAnalysis) return;
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const mediaRecorder = new MediaRecorder(stream);
-    mediaRecorderRef.current = mediaRecorder;
-    audioChunksRef.current = [];
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('您的浏览器不支持语音识别功能');
+      return;
+    }
 
-    const recognition = new ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)();
-    recognition.lang = 'en-US';
-    recognition.onresult = (event: any) => {
-      const result = event.results[0][0].transcript;
-      setOverallAnalysis(prev => prev ? { ...prev, rePracticeTranscript: result } : null);
-    };
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
 
-    mediaRecorder.ondataavailable = (event) => {
-      audioChunksRef.current.push(event.data);
-    };
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'en-US';
+      recognition.continuous = false;
+      recognition.onresult = (event: any) => {
+        const result = event.results[0][0].transcript;
+        setOverallAnalysis(prev => prev ? { ...prev, rePracticeTranscript: result } : null);
+      };
 
-    mediaRecorder.onstop = () => {
-      const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
-      const audioUrl = URL.createObjectURL(audioBlob);
-      setOverallAnalysis(prev => prev ? { ...prev, userAudioUrl: audioUrl, isRecording: false } : null);
-    };
+      mediaRecorder.ondataavailable = (event) => {
+        audioChunksRef.current.push(event.data);
+      };
 
-    setOverallAnalysis(prev => prev ? { ...prev, isRecording: true, rePracticeTranscript: '' } : null);
-    mediaRecorder.start();
-    recognition.start();
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: mediaRecorder.mimeType });
+        const audioUrl = URL.createObjectURL(audioBlob);
+        setOverallAnalysis(prev => prev ? { ...prev, userAudioUrl: audioUrl, isRecording: false } : null);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      setOverallAnalysis(prev => prev ? { ...prev, isRecording: true, rePracticeTranscript: '' } : null);
+      mediaRecorder.start();
+      recognition.start();
+    } catch (err) {
+      console.error('Overall re-practice recording error:', err);
+      alert('录音启动失败，请检查麦克风权限');
+    }
   };
 
   const stopOverallRePracticeRecording = () => {

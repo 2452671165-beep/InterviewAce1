@@ -10,6 +10,7 @@ export default defineConfig(({mode}) => {
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(
         (env.GEMINI_API_KEY && !env.GEMINI_API_KEY.includes("MY_GEMINI_API_KEY")) ? env.GEMINI_API_KEY : 
+        (env.GEMINI_API_Key && !env.GEMINI_API_Key.includes("MY_GEMINI_API_KEY")) ? env.GEMINI_API_Key :
         (process.env.GEMINI_API_KEY || "")
       ),
     },

@@ -4,7 +4,12 @@ import { SentenceAnalysis, Feedback, OverallAnalysis } from "../types";
 // 获取 AI 实例的辅助函数
 const getAI = () => {
   // 优先从 process.env 获取（由 Vite define 注入），其次从 import.meta.env 获取
-  const apiKey = process.env.GEMINI_API_KEY || (import.meta as any).env?.VITE_GEMINI_API_KEY;
+  const env = (import.meta as any).env || {};
+  const apiKey = 
+    process.env.GEMINI_API_KEY || 
+    env.VITE_GEMINI_API_KEY || 
+    env.GEMINI_API_KEY ||
+    env.GEMINI_API_Key;
   
   if (!apiKey || apiKey === "undefined" || apiKey === "null" || apiKey === "") {
     console.error('API Key is missing or invalid:', apiKey);
