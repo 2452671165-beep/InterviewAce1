@@ -211,7 +211,12 @@ export default function App() {
     const errorMsg = error instanceof Error ? error.message : String(error);
     
     if (errorMsg.includes('MISSING_API_KEY')) {
-      alert('检测到未配置 Gemini API Key。请在 AI Studio 的设置菜单中配置 GEMINI_API_KEY。');
+      const isVercel = window.location.hostname.includes('vercel.app');
+      if (isVercel) {
+        alert('检测到未配置 Gemini API Key。\n\n请在 Vercel 项目设置的 Environment Variables 中添加 GEMINI_API_KEY，然后重新部署应用。');
+      } else {
+        alert('检测到未配置 Gemini API Key。请在 AI Studio 的设置菜单中配置 GEMINI_API_KEY。');
+      }
     } else if (errorMsg.includes('API_QUOTA_EXCEEDED')) {
       alert('哎呀，当前请求太频繁啦！由于使用的是免费版 Gemini，请稍等 1 分钟再试，或者考虑在 AI Studio 中更换一个 API Key。');
     } else if (errorMsg.includes('Rpc failed') || errorMsg.includes('xhr error')) {
