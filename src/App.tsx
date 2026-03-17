@@ -180,7 +180,8 @@ export default function App() {
     if (error instanceof Error && error.message === 'MISSING_API_KEY') {
       alert('检测到未配置 Gemini API Key。如果你是在 Vercel 部署的，请在 Vercel 项目设置中添加 GEMINI_API_KEY 环境变量。');
     } else {
-      alert(defaultMsg);
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      alert(`${defaultMsg}\n\n错误详情: ${errorMsg}\n\n请检查网络或 API Key 权限。`);
     }
   };
 
@@ -448,6 +449,10 @@ export default function App() {
 
   // 进入追问环节
   const goToFollowUp = async () => {
+    if (!transcript.trim()) {
+      alert('请先回答当前问题，再进入追问环节哦');
+      return;
+    }
     setIsLoading(true);
     try {
       const question = await generateFollowUp(selectedQuestion!.text, transcript);
