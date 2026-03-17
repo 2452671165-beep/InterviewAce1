@@ -3,29 +3,43 @@ import { SentenceAnalysis, Feedback, OverallAnalysis } from "../types";
 
 // 获取 AI 实例的辅助函数
 const getAI = () => {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey === "MY_GEMINI_API_KEY" || apiKey === "") {
+  // 优先从 process.env 获取（由 Vite define 注入），其次从 import.meta.env 获取
+  const apiKey = process.env.GEMINI_API_KEY || (import.meta as any).env?.VITE_GEMINI_API_KEY;
+  
+  if (!apiKey || apiKey === "undefined" || apiKey === "null" || apiKey === "") {
+    console.error('API Key is missing or invalid:', apiKey);
     throw new Error("MISSING_API_KEY");
   }
+  
   return new GoogleGenAI({ apiKey });
 };
 
 /**
  * 通用的 Gemini 请求包装器，包含重试逻辑
  */
-async function callGeminiWithRetry(fn: () => Promise<any>, retries = 2, delay = 2000): Promise<any> {
+async function callGeminiWithRetry(fn: () => Promise<any>, retries = 3, delay = 2000): Promise<any> {
   try {
     return await fn();
   } catch (error: any) {
-    // 如果是 429 错误且还有重试次数
-    if (error?.status === 429 || error?.message?.includes('429')) {
-      if (retries > 0) {
-        console.log(`Gemini API 繁忙 (429)，${delay}ms 后重试...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        return callGeminiWithRetry(fn, retries - 1, delay * 2);
-      }
+    const errorMessage = error?.message || String(error);
+    const isRetryable = 
+      error?.status === 429 || 
+      errorMessage.includes('429') ||
+      errorMessage.includes('Rpc failed') ||
+      errorMessage.includes('xhr error') ||
+      errorMessage.includes('fetch') ||
+      errorMessage.includes('NetworkError');
+
+    if (isRetryable && retries > 0) {
+      console.log(`Gemini API 请求失败 (${errorMessage})，${delay}ms 后重试... (剩余重试次数: ${retries})`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return callGeminiWithRetry(fn, retries - 1, delay * 2);
+    }
+
+    if (errorMessage.includes('429')) {
       throw new Error("API_QUOTA_EXCEEDED");
     }
+    
     throw error;
   }
 }
@@ -77,7 +91,7 @@ export async function analyzeAnswer(question: string, answer: string): Promise<S
  * 2. 语音合成 (TTS) - 将地道改写转为语音
  */
 export async function textToSpeech(text: string): Promise<string> {
-  try {
+  return callGeminiWithRetry(async () => {
     const ai = getAI();
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
@@ -94,10 +108,7 @@ export async function textToSpeech(text: string): Promise<string> {
 
     const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
     return base64Audio || "";
-  } catch (error) {
-    console.error("Error in textToSpeech:", error);
-    return "";
-  }
+  }, 2, 1000); // 语音合成重试次数少一点，延迟短一点
 }
 
 /**
@@ -156,7 +167,7 @@ export async function generateFollowUp(question: string, answer: string): Promis
  * 5. 生成最终评分反馈
  */
 export async function generateFeedback(question: string, fullConversation: string): Promise<Feedback> {
-  try {
+  return callGeminiWithRetry(async () => {
     const ai = getAI();
     const prompt = `
       Analyze the following English interview practice session.
@@ -208,17 +219,14 @@ export async function generateFeedback(question: string, fullConversation: strin
     });
 
     return JSON.parse(response.text || "{}");
-  } catch (error) {
-    console.error("Error in generateFeedback:", error);
-    throw error;
-  }
+  });
 }
 
 /**
  * 6. 生成全篇回答的评价和建议
  */
 export async function analyzeOverallAnswer(question: string, originalAnswer: string): Promise<OverallAnalysis> {
-  try {
+  return callGeminiWithRetry(async () => {
     const ai = getAI();
     const prompt = `
       The user is answering the interview question: "${question}".
@@ -250,17 +258,14 @@ export async function analyzeOverallAnswer(question: string, originalAnswer: str
     });
 
     return JSON.parse(response.text || "{}");
-  } catch (error) {
-    console.error("Error in analyzeOverallAnswer:", error);
-    throw error;
-  }
+  });
 }
 
 /**
  * 7. 获取个性化定制的问题列表
  */
 export async function getCustomizationQuestions(question: string): Promise<string[]> {
-  try {
+  return callGeminiWithRetry(async () => {
     const ai = getAI();
     const prompt = `
       The user wants to prepare a personalized answer for the interview question: "${question}".
@@ -281,17 +286,14 @@ export async function getCustomizationQuestions(question: string): Promise<strin
     });
 
     return JSON.parse(response.text || "[]");
-  } catch (error) {
-    console.error("Error in getCustomizationQuestions:", error);
-    throw error;
-  }
+  });
 }
 
 /**
  * 8. 根据收集到的信息生成个性化完整答案
  */
 export async function generatePersonalizedAnswer(question: string, info: Record<string, string>): Promise<string> {
-  try {
+  return callGeminiWithRetry(async () => {
     const ai = getAI();
     const infoStr = Object.entries(info).map(([q, a]) => `Q: ${q}\nA: ${a}`).join('\n');
     const prompt = `
@@ -309,10 +311,7 @@ export async function generatePersonalizedAnswer(question: string, info: Record<
     });
 
     return response.text || "";
-  } catch (error) {
-    console.error("Error in generatePersonalizedAnswer:", error);
-    throw error;
-  }
+  });
 }
 
 /**

@@ -142,17 +142,15 @@ export default function App() {
       recognition.lang = langMode;
 
       recognition.onresult = (event: any) => {
-        let final = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            final += event.results[i][0].transcript + ' ';
-          }
+        let fullTranscript = '';
+        for (let i = 0; i < event.results.length; ++i) {
+          fullTranscript += event.results[i][0].transcript;
         }
         
         const currentStep = (window as any)._currentStep;
-        if (currentStep === 'PRACTICE') setTranscript(prev => prev + final);
-        else if (currentStep === 'CUSTOMIZE') setCustomInput(prev => prev + final);
-        else if (currentStep === 'FOLLOWUP') setFollowUpAnswer(prev => prev + final);
+        if (currentStep === 'PRACTICE') setTranscript(fullTranscript);
+        else if (currentStep === 'CUSTOMIZE') setCustomInput(fullTranscript);
+        else if (currentStep === 'FOLLOWUP') setFollowUpAnswer(fullTranscript);
       };
 
       recognition.onend = () => {
@@ -209,19 +207,23 @@ export default function App() {
 
   // --- 辅助函数 ---
   const handleAIError = (error: unknown, defaultMsg: string) => {
-    console.error(error);
-    if (error instanceof Error && error.message === 'MISSING_API_KEY') {
-      alert('检测到未配置 Gemini API Key。如果你是在 Vercel 部署的，请在 Vercel 项目设置中添加 GEMINI_API_KEY 环境变量。');
-    } else if (error instanceof Error && error.message === 'API_QUOTA_EXCEEDED') {
+    console.error('AI Error Details:', error);
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    
+    if (errorMsg.includes('MISSING_API_KEY')) {
+      alert('检测到未配置 Gemini API Key。请在 AI Studio 的设置菜单中配置 GEMINI_API_KEY。');
+    } else if (errorMsg.includes('API_QUOTA_EXCEEDED')) {
       alert('哎呀，当前请求太频繁啦！由于使用的是免费版 Gemini，请稍等 1 分钟再试，或者考虑在 AI Studio 中更换一个 API Key。');
+    } else if (errorMsg.includes('Rpc failed') || errorMsg.includes('xhr error')) {
+      alert('网络连接不稳定或请求被中断（RPC 错误）。这通常是暂时的，请尝试刷新页面或稍后再试。');
     } else {
-      const errorMsg = error instanceof Error ? error.message : String(error);
       alert(`${defaultMsg}\n\n错误详情: ${errorMsg}\n\n请检查网络或 API Key 权限。`);
     }
   };
 
   // 开始录音 (通用)
   const startVoiceInput = async (type: 'PRACTICE' | 'CUSTOMIZE' | 'FOLLOWUP') => {
+    console.log('startVoiceInput called, type:', type, 'recognition exists?', !!recognitionRef.current);
     // 检查浏览器支持
     if (!recognitionRef.current) {
       alert('您的浏览器不支持语音识别功能，请尝试使用 Chrome 或 Safari 浏览器。');
@@ -264,17 +266,20 @@ export default function App() {
 
   // 开始分析 (用于 PRACTICE)
   const startAnalysis = async () => {
+    console.log('startAnalysis called, transcript length:', transcript.trim().length);
     if (transcript.trim().length < 5) {
-      alert('回答太短了，请多说一点哦');
+      alert('回答太短了，请多说一点哦 (至少需要 5 个字符)');
       return;
     }
 
     setIsLoading(true);
     try {
+      console.log('Starting analysis...');
       const [sentenceResult, overallResult] = await Promise.all([
         analyzeAnswer(selectedQuestion!.text, transcript),
         analyzeOverallAnswer(selectedQuestion!.text, transcript)
       ]);
+      console.log('Analysis completed successfully');
       setAnalysis(sentenceResult);
       setOverallAnalysis(overallResult);
       setStep('ANALYSIS');
@@ -611,7 +616,7 @@ export default function App() {
 
   // 2. 题目选择页
   const renderSelect = () => (
-    <div className="max-w-2xl mx-auto py-12 px-6">
+    <div className="max-w-2xl mx-auto py-12 px-4 md:px-6">
       <button onClick={() => setStep('HOME')} className="flex items-center text-slate-500 mb-8 hover:text-indigo-600 transition-colors">
         <ArrowLeft className="w-4 h-4 mr-1" /> 返回首页
       </button>
@@ -640,7 +645,7 @@ export default function App() {
   const [showTips, setShowTips] = useState(false);
 
   const renderPractice = () => (
-    <div className="max-w-2xl mx-auto py-12 px-6 flex flex-col items-center">
+    <div className="max-w-2xl mx-auto py-12 px-4 md:px-6 flex flex-col items-center">
       <div className="w-full flex justify-start mb-8">
         <button onClick={() => setStep('SELECT')} className="flex items-center text-slate-500 hover:text-indigo-600 transition-colors">
           <ArrowLeft className="w-4 h-4 mr-1" /> 返回上一页
@@ -718,58 +723,67 @@ export default function App() {
               <Mic className="w-10 h-10" />
             </button>
             <p className="text-slate-400 font-medium text-lg">
-              {transcript ? '点击按钮重新录制' : '点击按钮开始录音回答'}
+              {transcript ? '录音已完成，你可以修改文字或直接分析' : '点击按钮开始录音，或在下方直接输入'}
             </p>
 
-            {transcript && (
+            <div className="w-full flex flex-col items-center gap-6">
               <motion.div 
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="w-full flex flex-col items-center gap-6"
+                className="p-4 md:p-6 bg-white rounded-2xl border-2 border-indigo-100 shadow-xl shadow-indigo-50/50 max-w-lg w-full relative"
               >
-                <div className="p-6 bg-white rounded-2xl border-2 border-indigo-100 shadow-xl shadow-indigo-50/50 max-w-lg w-full relative">
-                  <div className="absolute -top-3 left-6 bg-indigo-600 text-white text-[10px] font-bold px-3 py-1 rounded-full shadow-lg">
-                    已完成转录
-                  </div>
-                  <p className="text-slate-700 font-medium leading-relaxed">
-                    <span className="text-indigo-400 text-2xl font-serif mr-1">“</span>
-                    {transcript}
-                    <span className="text-indigo-400 text-2xl font-serif ml-1">”</span>
-                  </p>
+                <div className="absolute -top-3 left-6 bg-indigo-600 text-white text-[10px] font-bold px-3 py-1 rounded-full shadow-lg">
+                  你的回答 (支持语音转录或手动输入)
                 </div>
-
-                <button 
-                  onClick={startAnalysis}
-                  className="w-full max-w-lg bg-gradient-to-r from-indigo-600 to-violet-600 text-white py-4 rounded-2xl font-bold text-lg shadow-lg shadow-indigo-100 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
-                >
-                  完成回答，开始逐句分析 <ChevronRight className="w-5 h-5" />
-                </button>
+                <textarea
+                  value={transcript}
+                  onChange={(e) => setTranscript(e.target.value)}
+                  placeholder="在此输入你的回答..."
+                  className="w-full text-slate-700 font-medium leading-relaxed bg-transparent border-none focus:ring-0 resize-none min-h-[120px]"
+                />
               </motion.div>
-            )}
+
+              <button 
+                onClick={startAnalysis}
+                disabled={!transcript.trim() || isLoading}
+                className={`w-full max-w-lg bg-gradient-to-r from-indigo-600 to-violet-600 disabled:from-slate-300 disabled:to-slate-400 text-white py-4 rounded-2xl font-bold text-lg shadow-lg shadow-indigo-100 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 ${isLoading ? 'cursor-not-allowed opacity-80' : ''}`}
+              >
+                {isLoading ? (
+                  <><RefreshCw className="w-5 h-5 animate-spin" /> 正在分析中...</>
+                ) : (
+                  <><CheckCircle2 className="w-5 h-5" /> 完成回答，开始逐句分析 <ChevronRight className="w-5 h-5" /></>
+                )}
+              </button>
+            </div>
           </div>
         ) : (
-          <div className="flex flex-col items-center gap-6">
+          <div className="flex flex-col items-center gap-6 w-full">
             <button 
               onClick={stopVoiceInput}
-              className="w-24 h-24 bg-red-500 rounded-full flex items-center justify-center text-white shadow-xl shadow-red-200 animate-pulse"
+              className="w-24 h-24 bg-red-500 rounded-full flex items-center justify-center text-white shadow-xl shadow-red-200 animate-pulse hover:scale-105 transition-transform"
             >
               <Square className="w-10 h-10" />
             </button>
-            <p className="text-slate-400 font-medium text-lg flex items-center gap-2">
-              <span className="w-2 h-2 bg-red-500 rounded-full animate-ping" />
-              正在录音，请回答...
-            </p>
+            <div className="text-center">
+              <p className="text-red-500 font-bold text-lg flex items-center justify-center gap-2">
+                <span className="w-2 h-2 bg-red-500 rounded-full animate-ping" />
+                正在录音中...
+              </p>
+              <p className="text-slate-400 text-sm mt-1">点击红色按钮停止录音</p>
+            </div>
 
-            {transcript && (
-              <div className="p-6 bg-white rounded-2xl border-2 border-indigo-100 shadow-xl shadow-indigo-50/50 max-w-lg w-full relative">
-                <div className="absolute -top-3 left-6 bg-indigo-600 text-white text-[10px] font-bold px-3 py-1 rounded-full shadow-lg">
+            <div className="w-full flex flex-col items-center gap-6">
+              <div className="p-6 bg-white/80 rounded-2xl border-2 border-red-100 shadow-xl shadow-red-50/50 max-w-lg w-full relative">
+                <div className="absolute -top-3 left-6 bg-red-500 text-white text-[10px] font-bold px-3 py-1 rounded-full shadow-lg">
                   实时转录中
                 </div>
-                <p className="text-slate-700 font-medium leading-relaxed opacity-60">
-                  {transcript}...
-                </p>
+                <textarea
+                  readOnly
+                  value={transcript + (transcript ? '...' : '等待语音输入...')}
+                  className="w-full text-slate-700 font-medium leading-relaxed bg-transparent border-none focus:ring-0 resize-none min-h-[120px]"
+                />
               </div>
-            )}
+            </div>
           </div>
         )}
       </div>
@@ -778,12 +792,12 @@ export default function App() {
 
   // 3.5 定制化流程页
   const renderCustomize = () => (
-    <div className="max-w-2xl mx-auto py-12 px-6">
+    <div className="max-w-2xl mx-auto py-12 px-4 md:px-6">
       <button onClick={() => setStep('PRACTICE')} className="flex items-center text-slate-500 mb-8 hover:text-indigo-600 transition-colors">
         <ArrowLeft className="w-4 h-4 mr-1" /> 返回上一页
       </button>
 
-      <div className="mb-10 p-6 bg-slate-50 rounded-3xl border border-slate-100">
+      <div className="mb-10 p-4 md:p-6 bg-slate-50 rounded-3xl border border-slate-100">
         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">当前面试题目</span>
         <h3 className="text-xl font-bold text-slate-800">{selectedQuestion?.text}</h3>
       </div>
@@ -802,7 +816,7 @@ export default function App() {
         key={currentCustomIndex}
         initial={{ opacity: 0, x: 20 }}
         animate={{ opacity: 1, x: 0 }}
-        className="bg-white border border-indigo-100 rounded-3xl p-8 shadow-sm"
+        className="bg-white border border-indigo-100 rounded-3xl p-5 md:p-8 shadow-sm"
       >
         <div className="mb-8">
           <LanguageToggle />
@@ -810,7 +824,7 @@ export default function App() {
           <h3 className="text-xl font-bold text-slate-800 mt-2">{customQuestions[currentCustomIndex]}</h3>
         </div>
 
-        <div className="flex flex-col items-center gap-4 bg-slate-50 rounded-2xl p-8 mb-6 border border-dashed border-indigo-200">
+        <div className="flex flex-col items-center gap-4 bg-slate-50 rounded-2xl p-5 md:p-8 mb-6 border border-dashed border-indigo-200">
           {!isRecording ? (
             <button 
               onClick={() => startVoiceInput('CUSTOMIZE')}
@@ -834,10 +848,25 @@ export default function App() {
               </>
             ) : '点击麦克风开始语音回答'}
           </p>
+          {!customInput && (
+            <button 
+              onClick={() => {
+                const val = window.prompt('请输入你的回答：');
+                if (val) setCustomInput(val);
+              }}
+              className="text-indigo-500 text-xs font-bold hover:underline"
+            >
+              无法录音？点击手动输入
+            </button>
+          )}
           {customInput && (
             <div className="mt-4 p-4 bg-white rounded-xl border border-indigo-50 w-full">
-              <span className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest block mb-1">当前输入</span>
-              <p className="text-indigo-600 italic text-sm leading-relaxed">"{customInput}"</p>
+              <span className="text-[9px] font-bold text-indigo-400 uppercase tracking-widest block mb-1">当前输入 (点击可编辑)</span>
+              <textarea
+                value={customInput}
+                onChange={(e) => setCustomInput(e.target.value)}
+                className="w-full text-indigo-600 italic text-sm leading-relaxed bg-transparent border-none focus:ring-0 resize-none min-h-[60px]"
+              />
             </div>
           )}
         </div>
@@ -857,24 +886,32 @@ export default function App() {
   );
   // 4. 逐句分析页
   const renderAnalysis = () => (
-    <div className="max-w-3xl mx-auto py-12 px-6 pb-32">
+    <div className="max-w-3xl mx-auto py-12 px-4 md:px-6 pb-32">
       <button onClick={() => setStep('PRACTICE')} className="flex items-center text-slate-500 mb-8 hover:text-indigo-600 transition-colors">
         <ArrowLeft className="w-4 h-4 mr-1" /> 返回上一页
       </button>
 
-      <div className="mb-10 p-6 bg-slate-50 rounded-3xl border border-slate-100">
+      <div className="mb-10 p-4 md:p-6 bg-slate-50 rounded-3xl border border-slate-100">
         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">当前面试题目</span>
         <h3 className="text-xl font-bold text-slate-800">{selectedQuestion?.text}</h3>
       </div>
 
       <div className="flex items-center justify-between mb-8">
         <h2 className="text-2xl font-bold text-slate-900">表达优化建议</h2>
-        <button 
-          onClick={goToFollowUp}
-          className="bg-indigo-600 text-white px-6 py-2 rounded-full font-medium flex items-center gap-2 hover:bg-indigo-700 transition-colors"
-        >
-          进入追问 <ChevronRight className="w-4 h-4" />
-        </button>
+        <div className="flex gap-2">
+          <button 
+            onClick={startCustomization}
+            className="bg-white border border-indigo-200 text-indigo-600 px-4 py-2 rounded-full font-medium flex items-center gap-2 hover:bg-indigo-50 transition-colors"
+          >
+            <Sparkles className="w-4 h-4" /> AI 定制化
+          </button>
+          <button 
+            onClick={goToFollowUp}
+            className="bg-indigo-600 text-white px-6 py-2 rounded-full font-medium flex items-center gap-2 hover:bg-indigo-700 transition-colors"
+          >
+            进入追问 <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       <div className="space-y-8">
@@ -887,13 +924,13 @@ export default function App() {
             className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm hover:shadow-md transition-shadow"
           >
             {/* 原句展示 */}
-            <div className="p-6 border-b border-slate-50">
+            <div className="p-4 md:p-6 border-b border-slate-50">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">你的原句</span>
               <p className="text-slate-600 italic">"{item.original}"</p>
             </div>
 
             {/* 地道改写 (示例回答) */}
-            <div className="p-6 bg-indigo-50/30">
+            <div className="p-4 md:p-6 bg-indigo-50/30">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">地道示例回答</span>
                 <button 
@@ -990,7 +1027,7 @@ export default function App() {
             <h2 className="text-2xl font-bold text-slate-900">全篇综合评价</h2>
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-sm mb-8">
+      <div className="bg-white border border-slate-200 rounded-3xl p-5 md:p-8 shadow-sm mb-8">
             <p className="text-slate-700 text-lg leading-relaxed mb-8">{overallAnalysis.evaluation}</p>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
@@ -1005,7 +1042,7 @@ export default function App() {
             </div>
 
             {/* 完整示例回答 */}
-            <div className="bg-indigo-50/50 rounded-3xl p-8 border border-indigo-100">
+            <div className="bg-indigo-50/50 rounded-3xl p-5 md:p-8 border border-indigo-100">
               <div className="flex items-center justify-between mb-6">
                 <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">完整地道示例回答</span>
                 <button 
@@ -1134,17 +1171,17 @@ export default function App() {
 
   // 5. AI 追问页
   const renderFollowUp = () => (
-    <div className="max-w-2xl mx-auto py-12 px-6">
+    <div className="max-w-2xl mx-auto py-12 px-4 md:px-6">
       <button onClick={() => setStep('ANALYSIS')} className="flex items-center text-slate-500 mb-8 hover:text-indigo-600 transition-colors">
         <ArrowLeft className="w-4 h-4 mr-1" /> 返回上一页
       </button>
 
-      <div className="mb-8 p-6 bg-slate-50 rounded-3xl border border-slate-100">
+      <div className="mb-8 p-4 md:p-6 bg-slate-50 rounded-3xl border border-slate-100">
         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">当前面试题目</span>
         <h3 className="text-lg font-bold text-slate-700">{selectedQuestion?.text}</h3>
       </div>
 
-      <div className="bg-indigo-600 rounded-3xl p-8 text-white mb-8 shadow-xl shadow-indigo-100 relative overflow-hidden">
+      <div className="bg-indigo-600 rounded-3xl p-6 md:p-8 text-white mb-8 shadow-xl shadow-indigo-100 relative overflow-hidden">
         <MessageSquare className="absolute -right-4 -bottom-4 w-32 h-32 opacity-10" />
         <span className="text-indigo-200 text-xs font-bold uppercase tracking-widest">面试官追问</span>
         <h3 className="text-2xl font-bold mt-4 leading-tight">{followUpQuestion}</h3>
@@ -1152,7 +1189,7 @@ export default function App() {
 
       <LanguageToggle />
 
-      <div className="flex flex-col items-center gap-4 bg-white border-2 border-slate-200 rounded-3xl p-12 mb-8 shadow-sm">
+      <div className="flex flex-col items-center gap-4 bg-white border-2 border-slate-200 rounded-3xl p-6 md:p-12 mb-8 shadow-sm">
         {!isRecording ? (
           <button 
             onClick={() => startVoiceInput('FOLLOWUP')}
@@ -1176,10 +1213,25 @@ export default function App() {
             </>
           ) : '点击按钮开始语音回答'}
         </p>
+        {!followUpAnswer && (
+          <button 
+            onClick={() => {
+              const val = window.prompt('请输入你的回答：');
+              if (val) setFollowUpAnswer(val);
+            }}
+            className="text-indigo-500 text-sm font-bold hover:underline"
+          >
+            无法录音？点击手动输入
+          </button>
+        )}
         {followUpAnswer && (
           <div className="mt-6 p-6 bg-indigo-50/30 rounded-2xl border border-indigo-100 w-full">
-            <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest block mb-2">你的回答</span>
-            <p className="text-indigo-900 italic leading-relaxed">"{followUpAnswer}"</p>
+            <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest block mb-2">你的回答 (点击可编辑)</span>
+            <textarea
+              value={followUpAnswer}
+              onChange={(e) => setFollowUpAnswer(e.target.value)}
+              className="w-full text-indigo-900 italic leading-relaxed bg-transparent border-none focus:ring-0 resize-none min-h-[80px]"
+            />
           </div>
         )}
       </div>
@@ -1198,12 +1250,12 @@ export default function App() {
 
   // 6. 结果报告页
   const renderReport = () => (
-    <div className="max-w-3xl mx-auto py-12 px-6">
+    <div className="max-w-3xl mx-auto py-12 px-4 md:px-6">
       <button onClick={() => setStep('FOLLOWUP')} className="flex items-center text-slate-500 mb-8 hover:text-indigo-600 transition-colors">
         <ArrowLeft className="w-4 h-4 mr-1" /> 返回上一页
       </button>
 
-      <div className="mb-10 p-6 bg-slate-50 rounded-3xl border border-slate-100">
+      <div className="mb-10 p-4 md:p-6 bg-slate-50 rounded-3xl border border-slate-100">
         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">当前面试题目</span>
         <h3 className="text-xl font-bold text-slate-800">{selectedQuestion?.text}</h3>
       </div>
