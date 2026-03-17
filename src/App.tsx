@@ -179,6 +179,8 @@ export default function App() {
     console.error(error);
     if (error instanceof Error && error.message === 'MISSING_API_KEY') {
       alert('检测到未配置 Gemini API Key。如果你是在 Vercel 部署的，请在 Vercel 项目设置中添加 GEMINI_API_KEY 环境变量。');
+    } else if (error instanceof Error && error.message === 'API_QUOTA_EXCEEDED') {
+      alert('哎呀，当前请求太频繁啦！由于使用的是免费版 Gemini，请稍等 1 分钟再试，或者考虑在 AI Studio 中更换一个 API Key。');
     } else {
       const errorMsg = error instanceof Error ? error.message : String(error);
       alert(`${defaultMsg}\n\n错误详情: ${errorMsg}\n\n请检查网络或 API Key 权限。`);

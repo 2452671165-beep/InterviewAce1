@@ -11,10 +11,30 @@ const getAI = () => {
 };
 
 /**
+ * 通用的 Gemini 请求包装器，包含重试逻辑
+ */
+async function callGeminiWithRetry(fn: () => Promise<any>, retries = 2, delay = 2000): Promise<any> {
+  try {
+    return await fn();
+  } catch (error: any) {
+    // 如果是 429 错误且还有重试次数
+    if (error?.status === 429 || error?.message?.includes('429')) {
+      if (retries > 0) {
+        console.log(`Gemini API 繁忙 (429)，${delay}ms 后重试...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return callGeminiWithRetry(fn, retries - 1, delay * 2);
+      }
+      throw new Error("API_QUOTA_EXCEEDED");
+    }
+    throw error;
+  }
+}
+
+/**
  * 1. 将用户的回答拆分成句子并进行地道改写
  */
 export async function analyzeAnswer(question: string, answer: string): Promise<SentenceAnalysis[]> {
-  try {
+  return callGeminiWithRetry(async () => {
     const ai = getAI();
     const prompt = `
       You are an expert English interview coach. 
@@ -50,10 +70,7 @@ export async function analyzeAnswer(question: string, answer: string): Promise<S
     });
 
     return JSON.parse(response.text || "[]");
-  } catch (error) {
-    console.error("Error in analyzeAnswer:", error);
-    throw error;
-  }
+  });
 }
 
 /**
@@ -87,7 +104,7 @@ export async function textToSpeech(text: string): Promise<string> {
  * 3. 对比用户模仿的回答并给出新一轮建议
  */
 export async function compareAndFeedback(polished: string, userAttempt: string): Promise<string> {
-  try {
+  return callGeminiWithRetry(async () => {
     const ai = getAI();
     const prompt = `
       The user is trying to mimic this polished interview sentence: "${polished}".
@@ -112,17 +129,14 @@ export async function compareAndFeedback(polished: string, userAttempt: string):
     
     // 确保输出不带 * 号
     return (response.text || "太棒了！继续加油。").replace(/\*/g, '');
-  } catch (error) {
-    console.error("Error in compareAndFeedback:", error);
-    throw error;
-  }
+  });
 }
 
 /**
  * 4. 根据回答生成追问
  */
 export async function generateFollowUp(question: string, answer: string): Promise<string> {
-  try {
+  return callGeminiWithRetry(async () => {
     const ai = getAI();
     const prompt = `
       You are an interviewer. The candidate just answered "${question}" with "${answer}".
@@ -135,10 +149,7 @@ export async function generateFollowUp(question: string, answer: string): Promis
       contents: prompt,
     });
     return response.text || "Could you tell me more about that?";
-  } catch (error) {
-    console.error("Error in generateFollowUp:", error);
-    throw error;
-  }
+  });
 }
 
 /**
