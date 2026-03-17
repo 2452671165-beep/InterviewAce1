@@ -1278,13 +1278,23 @@ const WordLookup = ({ word, context, cache, onCacheUpdate }: {
   const [loading, setLoading] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  
   // 清理单词，移除标点符号
   const cleanWord = word.replace(/[.,!?;:()"]/g, '');
 
-  const handleMouseEnter = async () => {
+  const handleMouseEnter = () => {
     setShowTooltip(true);
-    // 只有长度大于 2 的单词才查询，且如果缓存中没有则请求 AI
-    if (!cache[cleanWord] && cleanWord.length > 2 && /^[a-zA-Z]+$/.test(cleanWord)) {
+    
+    // 只有长度大于 2 的单词才查询
+    if (cleanWord.length <= 2 || !/^[a-zA-Z]+$/.test(cleanWord)) return;
+
+    // 如果缓存中已有，直接结束
+    if (cache[cleanWord]) return;
+
+    // 增加 200ms 防抖，避免鼠标划过时频繁触发
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(async () => {
       setLoading(true);
       try {
         const info = await getWordDefinition(cleanWord, context);
@@ -1294,6 +1304,14 @@ const WordLookup = ({ word, context, cache, onCacheUpdate }: {
       } finally {
         setLoading(false);
       }
+    }, 200);
+  };
+
+  const handleMouseLeave = () => {
+    setShowTooltip(false);
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
     }
   };
 
@@ -1318,7 +1336,7 @@ const WordLookup = ({ word, context, cache, onCacheUpdate }: {
     <span 
       className="relative inline-block group"
       onMouseEnter={handleMouseEnter}
-      onMouseLeave={() => setShowTooltip(false)}
+      onMouseLeave={handleMouseLeave}
     >
       <span className={`cursor-help transition-all duration-200 rounded px-0.5 ${showTooltip ? 'text-indigo-600 bg-indigo-50' : 'hover:text-indigo-600 hover:bg-indigo-50'}`}>
         {word}

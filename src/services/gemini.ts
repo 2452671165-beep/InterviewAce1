@@ -307,15 +307,42 @@ export async function generatePersonalizedAnswer(question: string, info: Record<
 /**
  * 9. 获取单词释义与发音
  */
+// 单词释义缓存，避免重复请求
+const wordCache = new Map<string, { definition: string; phonetic: string }>();
+
+/**
+ * 9. 获取单词释义与发音
+ */
 export async function getWordDefinition(word: string, context: string): Promise<{ definition: string; phonetic: string }> {
+  const cleanWord = word.toLowerCase().trim();
+  
+  // 1. 检查缓存
+  if (wordCache.has(cleanWord)) {
+    return wordCache.get(cleanWord)!;
+  }
+
+  // 2. 简单常用词快速处理（减少 AI 请求）
+  const commonWords: Record<string, { d: string; p: string }> = {
+    'bring': { d: '带来；引起', p: '/brɪŋ/' },
+    'think': { d: '认为；思考', p: '/θɪŋk/' },
+    'work': { d: '工作；起作用', p: '/wɜːrk/' },
+    'good': { d: '好的；优秀的', p: '/ɡʊd/' },
+    'interview': { d: '面试；采访', p: '/ˈɪntərvjuː/' },
+    'experience': { d: '经验；经历', p: '/ɪkˈspɪriəns/' },
+    'skills': { d: '技能；技巧', p: '/skɪlz/' },
+    'company': { d: '公司；陪伴', p: '/ˈkʌmpəni/' },
+  };
+
+  if (commonWords[cleanWord]) {
+    const res = { definition: commonWords[cleanWord].d, phonetic: commonWords[cleanWord].p };
+    wordCache.set(cleanWord, res);
+    return res;
+  }
+
   try {
     const ai = getAI();
-    const prompt = `
-      Provide a brief Chinese definition and the IPA phonetic symbols for the English word "${word}" as used in this context: "${context}".
-      
-      Return the result in JSON format with keys: "definition", "phonetic".
-      Keep the definition very concise (under 15 words).
-    `;
+    // 优化 Prompt，要求更简洁，减少 Token 生成时间
+    const prompt = `Define "${cleanWord}" in Chinese (max 10 chars) and provide IPA. Context: "${context.substring(0, 100)}". Return JSON: {"d": "...", "p": "..."}`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
@@ -325,17 +352,22 @@ export async function getWordDefinition(word: string, context: string): Promise<
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            definition: { type: Type.STRING },
-            phonetic: { type: Type.STRING },
+            d: { type: Type.STRING, description: "Chinese definition" },
+            p: { type: Type.STRING, description: "IPA phonetic" },
           },
-          required: ["definition", "phonetic"],
+          required: ["d", "p"],
         },
       },
     });
 
-    return JSON.parse(response.text || '{"definition": "未找到释义", "phonetic": ""}');
+    const data = JSON.parse(response.text || '{"d": "未找到", "p": ""}');
+    const result = { definition: data.d, phonetic: data.p };
+    
+    // 存入缓存
+    wordCache.set(cleanWord, result);
+    return result;
   } catch (error) {
     console.error("Error in getWordDefinition:", error);
-    return { definition: "未找到释义", phonetic: "" };
+    return { definition: "查询失败", phonetic: "" };
   }
 }
