@@ -1,0 +1,7 @@
+{
+  "name": "InterviewAce",
+  "description": "针对大学生的英语面试口语练习工具，提供录音、改写、追问及评分功能。",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
