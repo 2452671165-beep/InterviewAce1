@@ -1,13 +1,20 @@
 import { GoogleGenAI, Type, Modality, ThinkingLevel } from "@google/genai";
 import { SentenceAnalysis, Feedback, OverallAnalysis } from "../types";
 
-// 初始化 AI (API Key 会由平台自动注入)
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+// 获取 AI 实例的辅助函数
+const getAI = () => {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === "MY_GEMINI_API_KEY" || apiKey === "") {
+    throw new Error("MISSING_API_KEY");
+  }
+  return new GoogleGenAI({ apiKey });
+};
 
 /**
  * 1. 将用户的回答拆分成句子并进行地道改写
  */
 export async function analyzeAnswer(question: string, answer: string): Promise<SentenceAnalysis[]> {
+  const ai = getAI();
   const prompt = `
     You are an expert English interview coach. 
     The user is answering the interview question: "${question}".
@@ -49,6 +56,7 @@ export async function analyzeAnswer(question: string, answer: string): Promise<S
  * 2. 语音合成 (TTS) - 将地道改写转为语音
  */
 export async function textToSpeech(text: string): Promise<string> {
+  const ai = getAI();
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash-preview-tts",
     contents: [{ parts: [{ text: `Read this naturally for an interview: ${text}` }] }],
@@ -70,6 +78,7 @@ export async function textToSpeech(text: string): Promise<string> {
  * 3. 对比用户模仿的回答并给出新一轮建议
  */
 export async function compareAndFeedback(polished: string, userAttempt: string): Promise<string> {
+  const ai = getAI();
   const prompt = `
     The user is trying to mimic this polished interview sentence: "${polished}".
     The user's new attempt is: "${userAttempt}".
@@ -102,6 +111,7 @@ export async function compareAndFeedback(polished: string, userAttempt: string):
  * 4. 根据回答生成追问
  */
 export async function generateFollowUp(question: string, answer: string): Promise<string> {
+  const ai = getAI();
   const prompt = `
     You are an interviewer. The candidate just answered "${question}" with "${answer}".
     Based on their answer, ask ONE professional follow-up question in English to dig deeper into their experience or skills.
@@ -122,6 +132,7 @@ export async function generateFollowUp(question: string, answer: string): Promis
  * 5. 生成最终评分反馈
  */
 export async function generateFeedback(question: string, fullConversation: string): Promise<Feedback> {
+  const ai = getAI();
   const prompt = `
     Analyze the following English interview practice session.
     Original Question: ${question}
@@ -179,6 +190,7 @@ export async function generateFeedback(question: string, fullConversation: strin
  * 6. 生成全篇回答的评价和建议
  */
 export async function analyzeOverallAnswer(question: string, originalAnswer: string): Promise<OverallAnalysis> {
+  const ai = getAI();
   const prompt = `
     The user is answering the interview question: "${question}".
     The full original answer is: "${originalAnswer}".
@@ -216,6 +228,7 @@ export async function analyzeOverallAnswer(question: string, originalAnswer: str
  * 7. 获取个性化定制的问题列表
  */
 export async function getCustomizationQuestions(question: string): Promise<string[]> {
+  const ai = getAI();
   const prompt = `
     The user wants to prepare a personalized answer for the interview question: "${question}".
     Please list 4-5 specific questions in English that I should ask the user to gather enough personal information (like school, personality, internship experience, specific achievements, etc.) to draft a perfect answer.
@@ -242,6 +255,7 @@ export async function getCustomizationQuestions(question: string): Promise<strin
  * 8. 根据收集到的信息生成个性化完整答案
  */
 export async function generatePersonalizedAnswer(question: string, info: Record<string, string>): Promise<string> {
+  const ai = getAI();
   const infoStr = Object.entries(info).map(([q, a]) => `Q: ${q}\nA: ${a}`).join('\n');
   const prompt = `
     The interview question is: "${question}".
@@ -267,6 +281,7 @@ export async function generatePersonalizedAnswer(question: string, info: Record<
  * 9. 获取单词释义与发音
  */
 export async function getWordDefinition(word: string, context: string): Promise<{ definition: string; phonetic: string }> {
+  const ai = getAI();
   const prompt = `
     Provide a brief Chinese definition and the IPA phonetic symbols for the English word "${word}" as used in this context: "${context}".
     

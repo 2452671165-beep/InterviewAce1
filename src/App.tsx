@@ -174,6 +174,16 @@ export default function App() {
   // --- 业务逻辑处理 ---
 
   // 开始录音 (通用)
+  // --- 辅助函数 ---
+  const handleAIError = (error: unknown, defaultMsg: string) => {
+    console.error(error);
+    if (error instanceof Error && error.message === 'MISSING_API_KEY') {
+      alert('检测到未配置 Gemini API Key。如果你是在 Vercel 部署的，请在 Vercel 项目设置中添加 GEMINI_API_KEY 环境变量。');
+    } else {
+      alert(defaultMsg);
+    }
+  };
+
   const startVoiceInput = (type: 'PRACTICE' | 'CUSTOMIZE' | 'FOLLOWUP') => {
     if (type === 'PRACTICE') setTranscript('');
     else if (type === 'CUSTOMIZE') setCustomInput('');
@@ -206,8 +216,7 @@ export default function App() {
       setOverallAnalysis(overallResult);
       setStep('ANALYSIS');
     } catch (error) {
-      console.error(error);
-      alert('分析失败，请重试');
+      handleAIError(error, '分析失败，请重试。如果多次失败，请检查网络连接或 API Key 是否有效。');
     } finally {
       setIsLoading(false);
     }
@@ -224,8 +233,7 @@ export default function App() {
       setCustomInput('');
       setStep('CUSTOMIZE');
     } catch (error) {
-      console.error(error);
-      alert('获取定制问题失败');
+      handleAIError(error, '获取定制问题失败');
     } finally {
       setIsLoading(false);
     }
@@ -255,8 +263,7 @@ export default function App() {
         setOverallAnalysis(overallResult);
         setStep('ANALYSIS');
       } catch (error) {
-        console.error(error);
-        alert('生成答案失败');
+        handleAIError(error, '生成答案失败');
       } finally {
         setIsLoading(false);
       }
@@ -386,7 +393,7 @@ export default function App() {
       const feedback = await compareAndFeedback(item.polished, item.rePracticeTranscript);
       setAnalysis(prev => prev.map((it, i) => i === index ? { ...it, rePracticeFeedback: feedback } : it));
     } catch (error) {
-      console.error(error);
+      handleAIError(error, '获取反馈失败');
     } finally {
       setIsLoading(false);
     }
@@ -433,7 +440,7 @@ export default function App() {
       const feedback = await compareAndFeedback(overallAnalysis.fullPolishedAnswer, overallAnalysis.rePracticeTranscript);
       setOverallAnalysis(prev => prev ? { ...prev, rePracticeFeedback: feedback } : null);
     } catch (error) {
-      console.error(error);
+      handleAIError(error, '获取反馈失败');
     } finally {
       setIsLoading(false);
     }
@@ -447,7 +454,7 @@ export default function App() {
       setFollowUpQuestion(question);
       setStep('FOLLOWUP');
     } catch (error) {
-      console.error(error);
+      handleAIError(error, '生成追问失败');
     } finally {
       setIsLoading(false);
     }
@@ -462,7 +469,7 @@ export default function App() {
       setFeedback(result);
       setStep('REPORT');
     } catch (error) {
-      console.error(error);
+      handleAIError(error, '生成报告失败');
     } finally {
       setIsLoading(false);
     }
